@@ -1,0 +1,59 @@
+version: '3.9'
+
+services:
+  traefik:
+    image: docker.io/traefik:2.8
+    command:
+      - --api.insecure=true
+      - --providers.docker
+      - --providers.docker.exposedByDefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web_secure.address=:443
+    ports:
+      - "8080:80"
+      - "8443:443"
+      - "127.0.0.1:9090:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      default:
+        aliases:
+          - $MINIO_DOMAIN
+
+  s3:
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.s3.entrypoints=web_secure
+      - traefik.http.routers.s3.rule=HostRegexp(`{host:([^.]+\.)?}$MINIO_DOMAIN`)
+      - traefik.http.routers.s3.tls=true
+    image: quay.io/minio/minio:RELEASE.2022-08-13T21-54-44Z
+    command: minio server /data
+    environment:
+      MINIO_ROOT_USER: $MINIO_ROOT_USER
+      MINIO_ROOT_PASSWORD: $MINIO_ROOT_PASSWORD
+      MINIO_DOMAIN: $MINIO_DOMAIN
+    expose:
+      - 9000
+    volumes:
+      - minio_data:/data
+
+  server:
+    image: quay.io/minio/mc:RELEASE.2022-08-11T00-30-48Z
+    environment: &awsenv
+      AWS_ACCESS_KEY_ID: $MINIO_ROOT_USER
+      AWS_SECRET_ACCESS_KEY: $MINIO_ROOT_PASSWORD
+      MINIO_DOMAIN: $MINIO_DOMAIN
+    entrypoint:
+      - sleep
+      - inf
+
+  python:
+    build:
+      context: ./test_s3
+    environment: *awsenv
+    entrypoint:
+      - sleep
+      - inf
+
+volumes:
+  minio_data:
